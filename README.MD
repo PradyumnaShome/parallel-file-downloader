@@ -31,7 +31,16 @@ This merging process can be optimized, but I decided not to implement it, assumi
 
 I have kept the maximum concurrent requests capped at 4, in order to prevent throttling from the server, and for this to be considered a denial-of-service attack. Most browsers have this limit set this to a number between 8 and 13 when fetching files.
 
-If the number of threads is very high (possibly due to an unthinking user), the overhead incurred in switching between so many threads will lead to a slowdown.
+If the number of threads is very high (possibly due to an unthinking user), the overhead incurred in switching between so many threads, as well as opening many simultaneous TCP connections, will lead to a significant slowdown.
+
+## Testing
+I used manual testing, by downloading files as large as 240MiB, with a varying number of threads (1-8) and diffing them with the original file. The largest file I tested, showed a speedup of about 5.4x with 8 threads (137.9 seconds vs. 25.4 seconds).
+
+Although the downloading process is limited by network bandwidth, the reason we see a speed-up is since the server treats different TCP connections separately.
+
+I have created a testing script (using the `pytest` and the `subprocess` modules) that invokes this script with a list of file URLs and and diffs each file with the output of `wget`.
+
+The byte range generating function has been unit tested, to ensure the ranges are roughly equal.
 
 ## Potential Improvements / Optimizations
 

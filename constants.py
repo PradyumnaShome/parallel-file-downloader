@@ -6,3 +6,6 @@ MAX_THREADS = 8
 
 # Directory where the files are downloaded
 DOWNLOAD_DIRECTORY = "./"
+
+# Max retries if the connection is dropped
+MAX_RETRIES = 5

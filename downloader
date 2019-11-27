@@ -9,14 +9,7 @@ import time
 import os
 
 import constants
-
-
-def pprint(payload):
-    """
-    Pretty-prints dictionary-like objects.
-    """
-    logging.debug(json.dumps(dict(payload), indent=4, sort_keys=True))
-
+import utils
 
 def get_file_info(url):
     """
@@ -25,13 +18,11 @@ def get_file_info(url):
     """
     response = requests.head(url)
 
-    pprint(response.headers)
+    utils.pprint(response.headers)
 
-    if response.status_code != requests.codes.ok:
-        logging.critical("Bad URL passed in.")
+    if response.status_code >=400:
+        logging.critical("Bad request. Could not access the file from the URL passed in.")
         sys.exit(1)
-
-    pprint(response.headers)
 
     ACCEPT_RANGES_HEADER = "Accept-Ranges"
     is_byte_range_supported = ACCEPT_RANGES_HEADER in response.headers and response.headers[
@@ -42,27 +33,6 @@ def get_file_info(url):
         return 0, False
     else:
         return int(response.headers["Content-Length"]), is_byte_range_supported
-
-
-def get_byte_ranges(length, n_threads):
-    """
-    Given the length of a file and a number of threads, returns a list of inclusive byte ranges as strings.
-    """
-    # Because number of bytes is discrete
-    range_size = length // n_threads
-    ranges = []
-
-    for i in range(n_threads - 1):
-        ranges.append(f"{i * range_size}-{i * range_size + range_size - 1}")
-
-    if len(ranges) >= 1:
-        last_byte_range_start = int(ranges[-1].split("-")[1]) + 1
-    else:
-        last_byte_range_start = 0
-
-    # Ensure we don't overextend our range
-    ranges.append(f"{last_byte_range_start}-")
-    return ranges
 
 
 def download_file_chunk(input):
@@ -149,7 +119,7 @@ def serial_combine_parts(filenames, actual_filename):
     logging.info(f"Merging of files took {end_time - start_time} seconds.")
 
 
-def logtree_combine_parts:
+def logtree_combine_parts():
     """
     An O(log n) file merging algorithm, that can be parallelized.
     """
@@ -191,10 +161,15 @@ def parse_and_get_arguments():
     return vars(parser.parse_args())
 
 
-def download_file_and_get_time():
+def download_file_and_get_time(url, filename, n_threads):
     """
     Manages the overall downloading of the file and returns the time taken for the download in seconds.
     """
+
+    s = requests.Session()
+
+    # Retry if the connection is dropped
+    s.mount('http://', requests.adapters.HTTPAdapter(max_retries=constants.MAX_RETRIES))
 
     length, is_byte_range_supported = get_file_info(url)
 
@@ -204,8 +179,16 @@ def download_file_and_get_time():
 
     if is_byte_range_supported and n_threads > 1:
 
+        # Easier than to give some threads nothing
+        if n_threads > length:
+            n_threads = length
+
+        # Only positive number of threads are allowed
+        if n_threads <= 0:
+            n_threads = 1
+
         logging.info(f"Downloading the file using {n_threads} threads.")
-        ranges = get_byte_ranges(length, n_threads)
+        ranges = utils.get_byte_ranges(length, n_threads)
 
         logging.debug(f"Byte ranges: {ranges}")
 
@@ -254,9 +237,7 @@ def main():
 
     elapsed_time_in_seconds = download_file_and_get_time(url, filename, n_threads)
 
-    logging.info( f"File downloaded successfully in {elapsed_time_in_seconds} seconds.")
-
-    return 0
+    logging.info(f"File downloaded successfully in {elapsed_time_in_seconds} seconds.")
 
 
 if __name__ == "__main__":
