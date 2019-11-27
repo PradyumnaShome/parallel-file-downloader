@@ -6,7 +6,6 @@ import logging
 import json
 import sys
 import time
-import threading
 
 import constants
 
@@ -70,29 +69,26 @@ def download_file_chunk(input):
     """
     Takes a filename, url, and byte range, and downloads a chunk of the file.
     """
-    global lock
     filename = input['filename']
     url = input['url']
     file_range = input['range']
     starting_bytes = int(file_range.split("-")[0])
     written_bytes = 0
 
+    partial_filename = DOWNLOAD_DIRECTORY + filename
+
     logging.debug(f"My range is: {file_range}")
 
     with requests.get(url,
                       stream=True,
                       headers={"Range": f"bytes={file_range}"}) as stream:
-        with lock: 
-            with open(filename, "wb") as file:
-                logging.debug(id(lock))
-                for chunk in stream.iter_content(chunk_size=constants.CHUNK_SIZE):
-                    file.seek(starting_bytes + written_bytes, 0)
+        with open(partial_filename, "wb") as file:
+            for chunk in stream.iter_content(chunk_size=constants.CHUNK_SIZE):
+                file.seek(starting_bytes + written_bytes, 0)
 
-                    file.write(chunk)
+                file.write(chunk)
 
-                    logging.debug(f"Chunk size: {len(chunk)}")
-
-                    written_bytes += len(chunk)
+                written_bytes += len(chunk)
 
         return written_bytes
 
@@ -128,6 +124,7 @@ def download_file_single_threaded(url, filename):
                 file.write(chunk)
         return filename
 
+
 def serial_combine_parts(filenames):
     first_filename = filenames[0]
     with open(first_filename, "wb+") as combined_file:
@@ -137,15 +134,13 @@ def serial_combine_parts(filenames):
 
 
 def combine_parts(filenames, method='serial'):
-    if method=='serial':
+    if method == 'serial':
         serial_combine_parts(filenames)
-    elif method=='logtree':
+    elif method == 'logtree':
         logtree_combine_parts(filenames)
 
-def main():
-    global lock
-    lock = threading.Lock()
 
+def main():
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s-%(relativeCreated)1d-%(threadName)s-%(message)s')
@@ -215,9 +210,7 @@ def main():
 
         # combine_parts(filenames)
     else:
-        logging.info(
-            f"Downloading file using a single thread."
-        )
+        logging.info(f"Downloading file using a single thread.")
 
         start_time = time.time()
 
@@ -230,6 +223,6 @@ def main():
 
     return 0
 
-lock = None
+
 if __name__ == "__main__":
     main()
