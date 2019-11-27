@@ -6,6 +6,7 @@ import logging
 import json
 import sys
 import time
+import os
 
 import constants
 
@@ -36,7 +37,6 @@ def get_file_info(url):
     is_byte_range_supported = ACCEPT_RANGES_HEADER in response.headers and response.headers[
         ACCEPT_RANGES_HEADER] == "bytes"
 
-    length = 0
     # We have to download this file in a single-threaded fashion if we cannot get the size
     if "Content-Length" not in response.headers:
         return 0, False
@@ -75,22 +75,19 @@ def download_file_chunk(input):
     starting_bytes = int(file_range.split("-")[0])
     written_bytes = 0
 
-    partial_filename = DOWNLOAD_DIRECTORY + filename
+    partial_filename = constants.DOWNLOAD_DIRECTORY + file_range + "-" + filename
 
     logging.debug(f"My range is: {file_range}")
 
     with requests.get(url,
                       stream=True,
                       headers={"Range": f"bytes={file_range}"}) as stream:
-        with open(partial_filename, "wb") as file:
+        with open(partial_filename, "wb+") as file:
             for chunk in stream.iter_content(chunk_size=constants.CHUNK_SIZE):
-                file.seek(starting_bytes + written_bytes, 0)
-
                 file.write(chunk)
-
                 written_bytes += len(chunk)
 
-        return written_bytes
+        return partial_filename
 
 
 def download_file_parallel(url, n_threads, filename, ranges):
@@ -125,28 +122,54 @@ def download_file_single_threaded(url, filename):
         return filename
 
 
-def serial_combine_parts(filenames):
+def serial_combine_parts(filenames, actual_filename):
+    """
+    Appends the contents of each file in filenames to the 0th file in a serial fashion.
+    """
+    start_time = time.time()
+
     first_filename = filenames[0]
-    with open(first_filename, "wb+") as combined_file:
+    with open(first_filename, "ab") as combined_file:
         for filename in filenames[1:]:
-            with open(filename) as partial:
-                data = partial.read(constants.CHUNK_SIZE)
+            read_again = True
+            with open(filename, 'rb') as partial:
+                while read_again:
+                    data = partial.read(constants.CHUNK_SIZE)
+                    read_again = len(data) > 0
+                    combined_file.write(data)
+            absolute_path = os.path.abspath(filename)
+
+            # We don't need partials any more.
+            os.unlink(absolute_path)
+
+    os.rename(first_filename, actual_filename)
+
+    end_time = time.time()
+
+    logging.info(f"Merging of files took {end_time - start_time} seconds.")
 
 
-def combine_parts(filenames, method='serial'):
+def logtree_combine_parts:
+    """
+    An O(log n) file merging algorithm, that can be parallelized.
+    """
+    raise NotImplementedError("Tree merging algorithm not implemented yet. Use the serial for now.")
+
+    
+
+def combine_parts(filenames, actual_filename, method='serial'):
+    """
+    Wrapper method to combine partial files using the given method.
+    """
     if method == 'serial':
-        serial_combine_parts(filenames)
+        serial_combine_parts(filenames, actual_filename)
     elif method == 'logtree':
         logtree_combine_parts(filenames)
 
-
-def main():
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s-%(relativeCreated)1d-%(threadName)s-%(message)s')
-
-    logging.debug(id(lock))
-
+def parse_and_get_arguments():
+    """
+    Initializes the parser, grabs arguments and returns them.
+    """
     parser = argparse.ArgumentParser(
         description=
         'Download a file with nThreads number of threads. There will be a reasonable limit to the maximum value of this variable.'
@@ -156,7 +179,7 @@ def main():
                         type=str,
                         nargs=1,
                         action="store",
-                        help="URL to file that will be downloaded")
+                        help="URL of file that will be downloaded")
     parser.add_argument('-c',
                         metavar='n_threads',
                         type=int,
@@ -164,27 +187,14 @@ def main():
                         action="store",
                         required=True,
                         dest='n_threads',
-                        help='an integer for the number of threads')
+                        help='an integer for the number of worker threads')
+    return vars(parser.parse_args())
 
-    # Steps
-    # Check if file URL is valid
-    # Get length of file
-    # Use a function to break into ranges, based on n_threads
-    # Cap nThreads to number of actual CPUs
-    # Use a ThreadPoolExecutor to download files into file.[partOfRange]
-    # Finally, combine pairs of successive parts into a single files
-    # Rename to actual file's name (if we know it)
 
-    arguments = vars(parser.parse_args())
-
-    # To prevent servers from thinking this is a DDOS attack
-    n_threads = min(constants.MAX_THREADS, arguments["n_threads"][0])
-
-    logging.info(f"Number of threads: {n_threads}")
-
-    url = arguments["url"][0]
-
-    filename = url.split("/")[-1]
+def download_file_and_get_time():
+    """
+    Manages the overall downloading of the file and returns the time taken for the download in seconds.
+    """
 
     length, is_byte_range_supported = get_file_info(url)
 
@@ -201,14 +211,11 @@ def main():
 
         start_time = time.time()
 
-        new_file = constants.DOWNLOAD_DIRECTORY + filename
-        with open(new_file, 'wb+') as f:
-            f.seek(length - 1, 0)
-            f.write(b"\0")
+        filenames = download_file_parallel(url, n_threads, filename, ranges)
 
-        filenames = download_file_parallel(url, n_threads, new_file, ranges)
+        logging.debug(f"Filenames to merge: {filenames}")
 
-        # combine_parts(filenames)
+        combine_parts(filenames, filename)
     else:
         logging.info(f"Downloading file using a single thread.")
 
@@ -218,8 +225,36 @@ def main():
 
     end_time = time.time()
 
-    logging.info(
-        f"File downloaded successfully in {end_time - start_time} seconds.")
+    return end_time - start_time
+
+def main():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s-%(relativeCreated)1d-%(threadName)s-%(message)s')
+
+    # Steps
+    # 1. Check if file URL is valid.
+    # 2. Get length of file.
+    # 3. Use a function to break into ranges, based on n_threads
+    # 4. Cap nThreads to reasonable number (defined in constants.py)
+    # 5. Use multithreading / multiprocessing to download file parts.
+    # 6. Finally, combine pairs of successive parts into a single file.
+    # 7. Rename to original file's name based on URL.
+
+    arguments = parse_and_get_arguments()
+
+    # To prevent servers from thinking this is a DDOS attack
+    n_threads = min(constants.MAX_THREADS, arguments["n_threads"][0])
+
+    logging.info(f"Number of threads: {n_threads}")
+
+    url = arguments["url"][0]
+
+    filename = url.split("/")[-1]
+
+    elapsed_time_in_seconds = download_file_and_get_time(url, filename, n_threads)
+
+    logging.info( f"File downloaded successfully in {elapsed_time_in_seconds} seconds.")
 
     return 0
 
