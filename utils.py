@@ -1,6 +1,7 @@
 import logging
 import json
 
+
 def get_byte_ranges(length, n_threads):
     """
     Given the length of a file and a number of threads, returns a list of inclusive byte ranges as strings.
@@ -20,6 +21,7 @@ def get_byte_ranges(length, n_threads):
     # Ensure we don't overextend our range
     ranges.append(f"{last_byte_range_start}-")
     return ranges
+
 
 def pprint(payload):
     """

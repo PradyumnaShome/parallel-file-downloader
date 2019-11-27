@@ -42,7 +42,9 @@ def download_file_chunk(input):
     filename = input['filename']
     url = input['url']
     file_range = input['range']
+
     starting_bytes = int(file_range.split("-")[0])
+
     written_bytes = 0
 
     partial_filename = constants.DOWNLOAD_DIRECTORY + file_range + "-" + filename

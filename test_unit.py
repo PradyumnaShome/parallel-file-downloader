@@ -3,6 +3,7 @@ import subprocess
 import random
 import os
 
+
 def test_byte_range_generation():
     # utils.get_byte_ranges is always passed in a number of threads less than equal to length bytes
     assert utils.get_byte_ranges(10, 3) == ["0-2", "3-5", "6-"]
@@ -17,6 +18,7 @@ urls = [
     "http://www.gilith.com/talks/ssv2010.pdf",
     "http://ia800304.us.archive.org/22/items/BuDrummonds_Bride/Bulldog_Drummonds_Bride_512kb.mp4",
 ]
+
 
 def test_download():
     """
@@ -34,12 +36,13 @@ def test_download():
         print(f"URL: {url}")
 
         # Run our downloader
-        downloader_process = subprocess.run(["./downloader", url, "-c", f"{nThreads}"], capture_output=True)
+        downloader_process = subprocess.run(
+            ["./downloader", url, "-c", f"{nThreads}"])
 
         assert downloader_process.returncode == 0
 
         # Run wget
-        wget_process = subprocess.run(["wget", url, "-O", f"wget_{filename}"], capture_output=True)
+        wget_process = subprocess.run(["wget", url, "-O", f"wget_{filename}"])
 
         assert wget_process.returncode == 0
 
@@ -51,4 +54,3 @@ def test_download():
 
         os.unlink(filename)
         os.unlink(f"wget_{filename}")
-
